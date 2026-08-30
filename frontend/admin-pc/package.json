@@ -1,0 +1,21 @@
+{
+  "name": "city-repair-admin-pc",
+  "version": "3.0.0",
+  "description": "城市公共设施智能报修与派单系统 - 市政管理PC后台（G端）",
+  "scripts": {
+    "dev": "vite --port 3002",
+    "build": "vite build"
+  },
+  "dependencies": {
+    "vue": "^3.3.0",
+    "vue-router": "^4.2.0",
+    "pinia": "^2.1.0",
+    "element-plus": "^2.4.0",
+    "axios": "^1.6.0",
+    "echarts": "^5.4.0"
+  },
+  "devDependencies": {
+    "vite": "^5.0.0",
+    "@vitejs/plugin-vue": "^4.5.0"
+  }
+}

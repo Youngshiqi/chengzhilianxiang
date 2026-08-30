@@ -1,0 +1,365 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>地理位置测试</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: 'SF Mono','Fira Code','Consolas',monospace;
+      background: #0a0d13;
+      color: #c0c8d4;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+    }
+    .card {
+      background: #11161e;
+      border: 1px solid #263040;
+      border-radius: 12px;
+      padding: 32px 28px;
+      max-width: 500px;
+      width: 100%;
+    }
+    h1 {
+      font-size: 18px;
+      color: #FF6B00;
+      margin-bottom: 6px;
+      letter-spacing: 2px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    h1::before {
+      content: '';
+      width: 8px; height: 8px;
+      border-radius: 50%;
+      background: #FF6B00;
+      box-shadow: 0 0 8px #FF6B00;
+      animation: pulse 1.5s ease-in-out infinite;
+    }
+    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.3} }
+
+    .log-line {
+      font-size: 12px;
+      color: #687890;
+      margin: 4px 0 16px;
+    }
+    .row {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      padding: 10px 0;
+      border-bottom: 1px solid #1a2430;
+      font-size: 14px;
+    }
+    .row:last-child { border-bottom: none; }
+    .label { color: #687890; flex-shrink: 0; }
+    .value { color: #e0e6f0; font-weight: 500; word-break: break-all; text-align: right; max-width: 280px; }
+    .value.mono { color: #FF6B00; }
+    .value.dim { color: #687890; }
+
+    .bar {
+      display: flex; align-items: center; gap: 8px;
+      margin-bottom: 20px; font-size: 13px;
+    }
+    .dot {
+      width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0;
+    }
+    .dot.ok { background: #00E676; box-shadow: 0 0 8px #00E676; }
+    .dot.err { background: #FF1744; box-shadow: 0 0 8px #FF1744; }
+    .dot.wait { background: #FFC107; animation: pulse 1s infinite; }
+
+    .btn {
+      width: 100%; margin-top: 20px;
+      padding: 12px; border-radius: 8px; border: none;
+      font-size: 15px; font-weight: 600; letter-spacing: 2px;
+      cursor: pointer;
+      background: linear-gradient(135deg, #FF6B00, #E05500);
+      color: #fff;
+      transition: transform .15s, opacity .15s;
+    }
+    .btn:active { transform: scale(.97); }
+    .btn:disabled { opacity: .5; cursor: not-allowed; }
+
+    .debug {
+      margin-top: 20px;
+      padding: 14px;
+      background: #080c12;
+      border: 1px solid #1a2430;
+      border-radius: 8px;
+      font-size: 11px;
+      color: #4a90d9;
+      max-height: 200px;
+      overflow-y: auto;
+      white-space: pre-wrap;
+      word-break: break-all;
+      line-height: 1.7;
+    }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>GEO LOCATION TEST</h1>
+    <p class="log-line" id="sdkStatus">⏳ 加载高德 SDK...</p>
+
+    <div class="bar">
+      <span class="dot wait" id="dot"></span>
+      <span id="statusText">初始化中</span>
+    </div>
+
+    <div class="row"><span class="label">来源</span><span class="value" id="source">—</span></div>
+    <div class="row"><span class="label">lng</span><span class="value mono" id="lng">—</span></div>
+    <div class="row"><span class="label">lat</span><span class="value mono" id="lat">—</span></div>
+    <div class="row"><span class="label">精度</span><span class="value dim" id="accuracy">—</span></div>
+    <div class="row"><span class="label">地址</span><span class="value" id="address">—</span></div>
+    <div class="row"><span class="label">行政区</span><span class="value" id="district">—</span></div>
+    <div class="row"><span class="label">城市</span><span class="value" id="city">—</span></div>
+    <div class="row"><span class="label">adcode</span><span class="value mono" id="adcode">—</span></div>
+
+    <button class="btn" id="btn" onclick="locate()">重新定位</button>
+
+    <div class="debug" id="debug"></div>
+  </div>
+
+  <script>
+    // ===== 后端 API 基地址（file:// 协议下必须用绝对 URL）=====
+    var API_BASE = 'http://127.0.0.1:8000'
+
+    var $ = function(id) { return document.getElementById(id) }
+    var logs = []
+    function log(msg) {
+      logs.push('[' + new Date().toISOString().slice(11,23) + '] ' + msg)
+      $('debug').textContent = logs.slice(-20).join('\n')
+      console.log(msg)
+    }
+
+    function setVal(id, val) { $(id).textContent = val != null ? val : '—' }
+    function setStatus(state, text) {
+      $('dot').className = 'dot ' + state
+      $('statusText').textContent = text
+    }
+
+    // ===== 主入口 =====
+    function locate() {
+      setStatus('wait', '定位中...')
+      $('btn').disabled = true
+      log('开始定位...')
+
+      // AMap SDK 已就绪 → 直接用高德
+      if (window.AMap && typeof AMap.plugin === 'function') {
+        log('✓ AMap SDK 已就绪，直接开始')
+        doAmapLocate()
+        return
+      }
+
+      // SDK 未就绪 → 轮询等待
+      waitForAMap(doAmapLocate)
+    }
+
+    // ===== 等待 SDK（最多 10s）=====
+    function waitForAMap(cb, tries) {
+      tries = tries || 0
+      if (window.AMap && typeof AMap.plugin === 'function') {
+        log('✓ AMap SDK 就绪（等待 #' + tries + '）')
+        $('sdkStatus').textContent = '✓ 高德 SDK 已加载'
+        $('sdkStatus').style.color = '#00E676'
+        cb()
+        return
+      }
+      if (tries > 40) {
+        log('✗ AMap SDK 加载超时（40次轮询/10秒）')
+        $('sdkStatus').textContent = '✗ 高德 SDK 加载超时'
+        $('sdkStatus').style.color = '#FF1744'
+
+        // 检查 script 标签是否加载成功
+        var scripts = document.querySelectorAll('script[src*="webapi.amap.com"]')
+        if (scripts.length === 0) {
+          log('✗ 高德 script 标签未注入！可能被浏览器拦截')
+        }
+        locateBrowserOnly()
+        return
+      }
+      setTimeout(function() { waitForAMap(cb, tries + 1) }, 250)
+    }
+
+    // ===== 高德 Geolocation 定位 =====
+    function doAmapLocate() {
+      log('加载 AMap.Geolocation 插件...')
+      AMap.plugin('AMap.Geolocation', function() {
+        log('Geolocation 插件就绪')
+        var geo = new AMap.Geolocation({
+          enableHighAccuracy: true,
+          timeout: 10000,
+          noIpLocate: 0,
+          noGeoLocation: 0,
+        })
+        geo.getCurrentPosition(function(status, result) {
+          log('Geolocation 回调: status=' + status + ' msg=' + (result.message || 'OK'))
+          if (status === 'complete' && result.position) {
+            var lng = result.position.lng
+            var lat = result.position.lat
+            setStatus('ok', '定位成功（高德 SDK）')
+            setVal('source', 'AMap.Geolocation')
+            setVal('lng', lng.toFixed(6))
+            setVal('lat', lat.toFixed(6))
+            setVal('accuracy', (result.accuracy || '?') + 'm')
+            log('坐标: ' + lng.toFixed(6) + ', ' + lat.toFixed(6))
+            doReverseGeocode(lng, lat)
+          } else {
+            log('高德定位失败: ' + JSON.stringify(result))
+            locateBrowserOnly()
+          }
+        })
+      })
+    }
+
+    // ===== 高德逆地理编码 =====
+    function doReverseGeocode(lng, lat) {
+      log('加载 AMap.Geocoder 插件...')
+      AMap.plugin('AMap.Geocoder', function() {
+        log('Geocoder 插件就绪，开始逆地理编码...')
+        var geocoder = new AMap.Geocoder()
+        geocoder.getAddress([lng, lat], function(status, result) {
+          log('Geocoder 回调: status=' + status + ' info=' + (result.info || '?'))
+          if (status === 'complete' && result.regeocode) {
+            var rg = result.regeocode
+            var comp = rg.addressComponent || {}
+            setVal('address', rg.formattedAddress)
+            setVal('district', comp.district)
+            setVal('city', Array.isArray(comp.city) ? comp.city.join('') : (comp.city || ''))
+            setVal('adcode', comp.adcode)
+            log('地址: ' + rg.formattedAddress)
+            log('区: ' + comp.district + ' | 市: ' + (comp.city || '') + ' | adcode: ' + comp.adcode)
+            log('✓ 全部完成')
+          } else {
+            log('逆地理编码失败: ' + JSON.stringify(result))
+            setVal('address', '失败 (status=' + status + ')')
+            fallbackBackendAPI(lng, lat)
+          }
+          $('btn').disabled = false
+        })
+      })
+    }
+
+    // ===== 降级1：浏览器原生 GPS =====
+    function locateBrowserOnly() {
+      if (!navigator.geolocation) {
+        setStatus('err', '定位不可用')
+        log('✗ 浏览器不支持 Geolocation')
+        $('btn').disabled = false
+        return
+      }
+      log('降级为浏览器原生 GPS...')
+      navigator.geolocation.getCurrentPosition(
+        function(pos) {
+          var lng = pos.coords.longitude
+          var lat = pos.coords.latitude
+          setStatus('ok', '定位成功（浏览器 GPS）')
+          setVal('source', 'navigator.geolocation')
+          setVal('lng', lng.toFixed(6))
+          setVal('lat', lat.toFixed(6))
+          setVal('accuracy', Math.round(pos.coords.accuracy) + 'm')
+          log('浏览器 GPS 坐标: ' + lng.toFixed(6) + ', ' + lat.toFixed(6))
+
+          // 如果 AMap 可用，尝试逆地理编码；否则直接走后端
+          if (window.AMap && typeof AMap.plugin === 'function') {
+            doReverseGeocode(lng, lat)
+          } else {
+            fallbackBackendAPI(lng, lat)
+          }
+        },
+        function(err) {
+          setStatus('err', '定位失败')
+          log('✗ 浏览器 GPS 失败: ' + err.message)
+          $('btn').disabled = false
+        },
+        { enableHighAccuracy: true, timeout: 10000 }
+      )
+    }
+
+    // ===== 降级2：后端接口（必须用绝对 URL）=====
+    function fallbackBackendAPI(lng, lat) {
+      var url = API_BASE + '/api/v1/utils/reverse-geocode?lng=' + lng + '&lat=' + lat
+      log('降级后端: ' + url)
+      fetch(url)
+        .then(function(resp) { return resp.json() })
+        .then(function(body) {
+          log('后端返回: ' + JSON.stringify(body))
+          if (body.code === 200 && body.data) {
+            setVal('address', body.data.address)
+            setVal('district', body.data.district)
+            setVal('city', body.data.city)
+            setVal('adcode', body.data.adcode)
+            log('✓ 后端逆地理编码成功')
+          } else {
+            setVal('address', '后端: ' + (body.msg || '失败'))
+            log('✗ 后端返回非200: ' + body.msg)
+          }
+          $('btn').disabled = false
+        })
+        .catch(function(e) {
+          setVal('address', '所有方式均失败（后端未启动？）')
+          log('✗ 后端请求异常: ' + e.message)
+          $('btn').disabled = false
+        })
+    }
+
+    // ===== 动态注入高德 script 标签并监听结果 =====
+    function injectAmapScript() {
+      // 检查是否已有高德 script
+      var existing = document.querySelector('script[src*="webapi.amap.com"]')
+      if (existing) {
+        log('高德 script 已存在，等待 onload...')
+        if (existing._loaded) {
+          log('script 之前已加载成功')
+        }
+        // 已有标签，走正常轮询
+        return
+      }
+
+      log('动态注入高德 script 标签...')
+      var s = document.createElement('script')
+      s.src = 'https://webapi.amap.com/v2/main.js?key=e633b8bf8b19f76c67b5707625b0a276&plugin=AMap.Geolocation,AMap.Geocoder'
+      s.onload = function() {
+        s._loaded = true
+        log('✓ 高德 script onload 触发')
+        $('sdkStatus').textContent = '✓ 高德 SDK 已加载（onload）'
+        $('sdkStatus').style.color = '#00E676'
+      }
+      s.onerror = function() {
+        log('✗ 高德 script 加载失败！可能是网络问题或被拦截')
+        $('sdkStatus').textContent = '✗ 高德 SDK 加载失败（网络/拦截）'
+        $('sdkStatus').style.color = '#FF1744'
+      }
+      document.head.appendChild(s)
+    }
+
+    // ===== 启动 =====
+    window._AMapSecurityConfig = {
+      securityJsCode: '167a1003441359b5625504e95d0d1c27',
+    }
+
+    function boot() {
+      log('启动: ' + location.protocol + ' 协议')
+      if (location.protocol === 'file:') {
+        log('⚠ 当前为 file:// 协议，后端降级使用绝对 URL: ' + API_BASE)
+      }
+      injectAmapScript()
+      // 等一会儿让 script 开始加载，然后开始轮询
+      setTimeout(function() {
+        waitForAMap(doAmapLocate)
+      }, 500)
+    }
+
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', boot)
+    } else {
+      boot()
+    }
+  </script>
+</body>
+</html>

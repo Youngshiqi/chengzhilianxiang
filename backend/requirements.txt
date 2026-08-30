@@ -1,0 +1,46 @@
+# City Repair System - Python Dependencies
+# Web framework
+fastapi==0.104.1
+uvicorn[standard]==0.24.0
+
+# Database drivers
+sqlalchemy==2.0.23
+pymysql==1.1.0
+aiomysql==0.2.0
+
+# Redis
+redis==5.0.1
+
+# MongoDB
+motor==3.3.2
+pymongo==4.6.0
+
+# Elasticsearch
+elasticsearch[async]==8.12.0
+
+# RabbitMQ
+aio-pika==9.3.1
+
+# Auth & Security
+python-jose[cryptography]==3.3.0
+passlib[bcrypt]==1.7.4
+
+# Data validation
+pydantic==2.5.2
+pydantic-settings==2.1.0
+
+# LLM (LangChain + 阿里云百炼)
+langchain>=0.3.0
+langchain-openai>=0.3.0
+
+# Utilities
+httpx==0.25.2
+python-multipart==0.0.6
+Pillow==10.1.0
+oss2==2.18.4
+
+# Alibaba Cloud DypnsAPI (号码认证一键登录)
+alibabacloud_dypnsapi20170525>=3.0.0
+
+# Alibaba Cloud DypnsAPI (号码认证一键登录)
+alibabacloud_dypnsapi20170525>=3.0.0

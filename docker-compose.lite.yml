@@ -1,0 +1,196 @@
+# ============================================================
+# 城市公共设施智能报修与派单系统 - 低配/无域名 单机编排（2核4G）
+#
+# 适用：单台 2C4G 云主机，无域名，直接用 http://公网IP 访问。
+#
+# 内存预算（合计约 2.6G 上限，剩余给 OS + 2G swap 兜底）：
+#   frontend(nginx)  64M
+#   backend(uvicorn) 512M
+#   mysql            512M   (innodb buffer pool 256M)
+#   redis            192M   (maxmemory 128M)
+#   mongodb          384M   (wiredTiger cache 256M)
+#   elasticsearch    640M   (heap 384M)
+#   rabbitmq         256M
+#
+# 重要：
+#   1) 启动前务必先加 2G swap（见 DEPLOY.md §低配部署），否则构建/运行易 OOM。
+#   2) 强烈建议【不要在 2C4G 上构建镜像】（node 三端 vite 构建峰值 >1.5G）。
+#      在开发机/更强机器构建后 docker save 传上来 load（见 DEPLOY.md）。
+#   3) backend 单副本：MQ 消费者与定时任务在进程内，多副本会重复派单。
+# ============================================================
+
+services:
+  backend:
+    build:
+      context: ./backend
+    image: city-repair/backend:latest
+    container_name: city_repair_backend
+    restart: always
+    mem_limit: 512m
+    memswap_limit: 1024m
+    env_file:
+      - .env.production
+    environment:
+      MYSQL_HOST: mysql
+      REDIS_HOST: redis
+      MONGO_HOST: mongodb
+      ES_HOST: elasticsearch
+      RABBITMQ_HOST: rabbitmq
+      DEBUG: "false"
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_started
+      mongodb:
+        condition: service_started
+      elasticsearch:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    networks:
+      - citynet
+    ports:
+      - "127.0.0.1:8000:8000"   # 仅本机排障；对外统一走 frontend:80
+
+  frontend:
+    build:
+      context: ./frontend
+    image: city-repair/frontend:latest
+    container_name: city_repair_frontend
+    restart: always
+    mem_limit: 64m
+    depends_on:
+      - backend
+    networks:
+      - citynet
+    ports:
+      - "80:80"                 # 无域名：直接 http://公网IP 访问
+
+  mysql:
+    image: mysql:8.4.9
+    container_name: city_repair_mysql
+    restart: always
+    mem_limit: 512m
+    memswap_limit: 768m
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+      - --innodb-buffer-pool-size=256M
+      - --max-connections=80
+      - --innodb-log-buffer-size=16M
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: ${MYSQL_DATABASE}
+      MYSQL_USER: ${MYSQL_USER}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+    volumes:
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-u", "root", "-p${MYSQL_ROOT_PASSWORD}"]
+      interval: 10s
+      timeout: 5s
+      retries: 15
+      start_period: 40s
+    networks:
+      - citynet
+
+  redis:
+    image: redis:7.4.9
+    container_name: city_repair_redis
+    restart: always
+    mem_limit: 192m
+    command:
+      - redis-server
+      - --appendonly
+      - "yes"
+      - --requirepass
+      - ${REDIS_PASSWORD}
+      - --maxmemory
+      - 128mb
+      - --maxmemory-policy
+      - allkeys-lru
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 15
+    networks:
+      - citynet
+
+  mongodb:
+    image: mongo:6
+    container_name: city_repair_mongo
+    restart: always
+    mem_limit: 384m
+    memswap_limit: 512m
+    command:
+      - --wiredTigerCacheSizeGB
+      - "0.25"
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_USER}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_PASSWORD}
+    volumes:
+      - mongo_data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 15
+      start_period: 30s
+    networks:
+      - citynet
+
+  elasticsearch:
+    image: elasticsearch:8.12.0
+    container_name: city_repair_es
+    restart: always
+    mem_limit: 640m
+    memswap_limit: 1024m
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=false
+      - "ES_JAVA_OPTS=-Xms384m -Xmx384m"
+      - cluster.routing.allocation.disk.threshold_enabled=false
+    volumes:
+      - es_data:/usr/share/elasticsearch/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fs http://127.0.0.1:9200/_cluster/health || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 15
+      start_period: 60s
+    networks:
+      - citynet
+
+  rabbitmq:
+    image: rabbitmq:3.12-management
+    container_name: city_repair_rabbitmq
+    restart: always
+    mem_limit: 256m
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD}
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 15s
+      timeout: 10s
+      retries: 15
+      start_period: 40s
+    networks:
+      - citynet
+
+volumes:
+  mysql_data:
+  redis_data:
+  mongo_data:
+  es_data:
+  rabbitmq_data:
+
+networks:
+  citynet:
+    driver: bridge

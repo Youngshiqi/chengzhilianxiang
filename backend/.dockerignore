@@ -1,0 +1,26 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.venv/
+venv/
+
+# 环境与密钥（镜像通过运行时环境变量注入，不打进镜像）
+.env
+.env.*
+!.env.example
+
+# 测试与调试产物
+tests/
+test_tokens.txt
+*.log
+
+# 本地临时脚本（非运行必需，可按需保留）
+check_*.py
+debug_*.py
+delete_*.py
+fix_*.py
+update_*.py
+regenerate_*.py
+verify_materials.py

@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>城市设施运维指挥中心 · CityRepair</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Mono:ital,wght@0,300;0,400;0,500;1,400&display=swap" rel="stylesheet" />
+  <!-- 高德 JS API v2.0：GIS 一张图 -->
+  <script>
+    window._AMapSecurityConfig = {
+      securityJsCode: '167a1003441359b5625504e95d0d1c27',
+    }
+    // 抑制 Chrome Canvas2D willReadFrequently 警告（高德地图内部使用 getImageData）
+    try {
+      const origGetContext = HTMLCanvasElement.prototype.getContext
+      HTMLCanvasElement.prototype.getContext = function (type, attrs) {
+        if (type === '2d') {
+          attrs = Object.assign({}, attrs || {}, { willReadFrequently: true })
+        }
+        return origGetContext.call(this, type, attrs)
+      }
+    } catch (e) {}
+  </script>
+  <script src="https://webapi.amap.com/maps?v=2.0&key=1cf2e7ad1f26d3a843c513f9d1e5eda9&plugin=AMap.Marker,AMap.InfoWindow,AMap.Scale,AMap.ToolBar,AMap.MarkerCluster"></script>
+</head>
+<body>
+  <div id="app"></div>
+  <script type="module" src="/src/main.js"></script>
+</body>
+</html>

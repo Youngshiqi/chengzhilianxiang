@@ -1,0 +1,170 @@
+# ============================================================
+# 城市公共设施智能报修与派单系统 - 生产环境编排
+# 用法：
+#   1. cp .env.production.example .env.production  并填写真实强密码/密钥
+#   2. docker compose --env-file .env.production -f docker-compose.prod.yml up -d --build
+#   3. 初始化：docker compose ... exec backend python scripts/init_db.py
+# 安全要点：
+#   - 基础设施端口【不暴露公网】，仅在内部网络 citynet 互通；对外只发布前端 80/443
+#   - 所有密码/密钥通过 .env.production 注入，不写入本文件
+#   - backend 单副本（消费者/调度器耦合在应用进程内，多副本会重复消费 MQ）
+# ============================================================
+
+services:
+  # ---------------- 后端 API（单副本） ----------------
+  backend:
+    build:
+      context: ./backend
+    image: city-repair/backend:latest
+    container_name: city_repair_backend
+    restart: always
+    env_file:
+      - .env.production
+    environment:
+      # 覆盖 .env 中的主机为本 compose 内部服务名
+      MYSQL_HOST: mysql
+      REDIS_HOST: redis
+      MONGO_HOST: mongodb
+      ES_HOST: elasticsearch
+      RABBITMQ_HOST: rabbitmq
+      DEBUG: "false"
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_started
+      mongodb:
+        condition: service_started
+      elasticsearch:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    networks:
+      - citynet
+    # 仅绑定到本机回环，便于排障；公网访问统一经 frontend(Nginx)
+    ports:
+      - "127.0.0.1:8000:8000"
+
+  # ---------------- 前端（Nginx 托管三端 + 反代 /api） ----------------
+  frontend:
+    build:
+      context: ./frontend
+    image: city-repair/frontend:latest
+    container_name: city_repair_frontend
+    restart: always
+    depends_on:
+      - backend
+    networks:
+      - citynet
+    ports:
+      - "80:80"
+      # 如在宿主机用 Nginx/Caddy 终结 HTTPS，可改为只监听回环：
+      # - "127.0.0.1:8080:80"
+
+  # ---------------- MySQL 8.4 ----------------
+  mysql:
+    image: mysql:8.4.9
+    container_name: city_repair_mysql
+    restart: always
+    command: --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: ${MYSQL_DATABASE}
+      MYSQL_USER: ${MYSQL_USER}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+    volumes:
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-u", "root", "-p${MYSQL_ROOT_PASSWORD}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    networks:
+      - citynet
+
+  # ---------------- Redis 7.4 ----------------
+  redis:
+    image: redis:7.4.9
+    container_name: city_repair_redis
+    restart: always
+    command: ["redis-server", "--appendonly", "yes", "--requirepass", "${REDIS_PASSWORD}"]
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks:
+      - citynet
+
+  # ---------------- MongoDB 6（应用以根账号 authSource=admin 连接） ----------------
+  mongodb:
+    image: mongo:6
+    container_name: city_repair_mongo
+    restart: always
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_USER}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_PASSWORD}
+    volumes:
+      - mongo_data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    networks:
+      - citynet
+
+  # ---------------- Elasticsearch 8.12（单节点，关闭安全） ----------------
+  elasticsearch:
+    image: elasticsearch:8.12.0
+    container_name: city_repair_es
+    restart: always
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=false
+      - "ES_JAVA_OPTS=-Xms512m -Xmx512m"
+    volumes:
+      - es_data:/usr/share/elasticsearch/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fs http://127.0.0.1:9200/_cluster/health || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 40s
+    networks:
+      - citynet
+
+  # ---------------- RabbitMQ 3.12 ----------------
+  rabbitmq:
+    image: rabbitmq:3.12-management
+    container_name: city_repair_rabbitmq
+    restart: always
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD}
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 30s
+    networks:
+      - citynet
+    # 管理界面如需访问，临时放开：127.0.0.1:15672:15672
+
+volumes:
+  mysql_data:
+  redis_data:
+  mongo_data:
+  es_data:
+  rabbitmq_data:
+
+networks:
+  citynet:
+    driver: bridge

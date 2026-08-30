@@ -1,0 +1,19 @@
+{
+  "name": "city-repair-worker-h5",
+  "version": "3.0.0",
+  "description": "城市公共设施智能报修与派单系统 - 维修员移动端H5（B端）",
+  "scripts": {
+    "dev": "vite --port 3001",
+    "build": "vite build"
+  },
+  "dependencies": {
+    "vue": "^3.3.0",
+    "vue-router": "^4.2.0",
+    "pinia": "^2.1.0",
+    "axios": "^1.6.0"
+  },
+  "devDependencies": {
+    "vite": "^5.0.0",
+    "@vitejs/plugin-vue": "^4.5.0"
+  }
+}
