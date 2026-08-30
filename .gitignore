@@ -62,15 +62,8 @@ frontend/worker-h5/dist/
 Thumbs.db
 
 # Local tool config
-.claude/
-.workbuddy/
 .claude/settings.local.json
 *.local.json
-
-# Sensitive files (含真实密钥/Token，禁止上传)
-backend/test_tokens.txt
-test_tokens*.txt
-backend/tests/debug_vision_model.py
 
 # Logs
 logs/
@@ -85,6 +78,11 @@ backend/tests/__pycache__/
 backend/test_tokens.txt
 fix_*.py
 tmp_*.py
+
+# Project docs (internal PRD & analysis, not for public repo)
+城市公共设施智能报修与派单系统_PRD_v3.0.docx
+城市公共设施智能报修与派单系统_PRD_v3.2.md
+项目分析文档_功能模块与核心业务流程.md
 
 # Misc
 *.tmp

@@ -9,8 +9,8 @@
 | 端 | 地址 | 账号 / 密码 |
 | --- | --- | --- |
 | 🖥️ 管理后台 | http://120.26.130.186/admin/ | admin / admin123 |
-| 📱 市民端 | http://120.26.130.186/ | zhangsan（～chenqi）/ 123456 |
-| 🔧 维修员端 | http://120.26.130.186/worker/ | worker1（～worker5）/ 123456 |
+| 📱 市民端 | http://120.26.130.186/ | zhangsan / 123456 |
+| 🔧 维修员端 | http://120.26.130.186/worker/ | worker1 / 123456 |
 
 ---
 
@@ -59,13 +59,13 @@
 ```mermaid
 graph TD
     START((START)) --> route[route 入口路由]
-    route -- event=report --> parse[parse 报修解析]
-    route -- event=timeout --> dispatch[dispatch 派单决策]
-    route -- event=complete --> verify[verify 视觉验收]
+    route -->|event report| parse[parse 报修解析]
+    route -->|event timeout| dispatch[dispatch 派单决策]
+    route -->|event complete| verify[verify 视觉验收]
     parse --> END((END))
     dispatch --> END
-    verify -- verdict=True --> END
-    verify -- verdict=False --> rework[rework 返工]
+    verify -->|verdict True| END
+    verify -->|verdict False| rework[rework 返工]
     rework --> END
 ```
 
@@ -94,7 +94,7 @@ graph LR
     C --> D[四维加权评分 兜底]
     D --> E[LLM 工具循环 增强]
     E --> F[分布式锁 + 指派]
-    D -. LLM 失败/越界 .-> F
+    D -.->|LLM 失败/越界| F
 ```
 
 1. **Redis Geo 半径检索**：普通工单 5km、紧急工单 10km，最多 20 个候选；
@@ -109,14 +109,14 @@ graph LR
 ## 6. 工单状态机
 
 ```mermaid
-stateDiagram-v2
-    [*] --> accepting: 市民报修
-    accepting --> repairing: 抢单(accepted_at)
-    accepting --> dispatching: 10分钟超时自动派单(dispatched_at)
-    dispatching --> repairing: 到场签到(started_at)
-    repairing --> verifying: 完工+AI验收通过(completed_at)
-    verifying --> [*]: 市民确认/7天自动(closed_at)
-    verifying --> repairing: AI验收不通过(返工)
+graph LR
+    start((开始)) --> accepting[accepting<br/>市民报修]
+    accepting -->|抢单| repairing[repairing]
+    accepting -->|10分钟超时<br/>自动派单| dispatching[dispatching]
+    dispatching -->|到场签到| repairing
+    repairing -->|完工+AI验收通过| verifying[verifying]
+    verifying -->|市民确认<br/>7天自动关闭| endState((结束))
+    verifying -->|AI验收不通过<br/>返工| repairing
 ```
 
 六个时间戳（`created_at / accepted_at / dispatched_at / started_at / completed_at / closed_at`）完整刻画工单全生命周期，支撑响应速度（增量平均算法）、履约时效等指标。
